@@ -1,6 +1,5 @@
-﻿
-
-using System;
+﻿using System;
+using System.Diagnostics;   
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -8,77 +7,66 @@ namespace lab1
 {
     class Program
     {
-        static int zloze = 2000;
-        static int magazyn = 0;
+        const int poczatkoweZloze = 2000;
         const int pojemnoscPojazdu = 200;
         const int czasWydobyciaJednostkiMs = 10;
         const int czasRozladunkuJednostkiMs = 10;
-        const int czasPrzejazduMs = 10000;
+        const int czasPrzejazduMs = 3000;
 
-        static SemaphoreSlim semaforZloza = new SemaphoreSlim(2, 2);
-        static SemaphoreSlim semaforMagazynu = new SemaphoreSlim(1, 1);
+        static int zloze;
+        static int magazyn;
+        static SemaphoreSlim semaforZloza;
+        static SemaphoreSlim semaforMagazynu;
         static object blokadaZloza = new object();
         static object blokadaMagazynu = new object();
-        static object blokadaKonsoli = new object();
-
-        static bool symulacjaTrwa = true;
 
         static void Main(string[] args)
         {
-            Console.Clear();
-            Console.CursorVisible = false;
+            Console.WriteLine("=== Pomiar przyśpieszenia i efektywności ===\n");
 
-            int liczbaGornikow = 5;
-            Task[] gornicy = new Task[liczbaGornikow];
+            int maxGornikow = 7;
+            double czasDlaJeden = 0;
 
-            Task monitor = Task.Run(() => OdswiezajStanOgolny());
-
-            for (int i = 0; i < liczbaGornikow; i++)
+            for (int p = 1; p <= maxGornikow; p++)
             {
-                int idGornika = i + 1;
-                int liniaKonsoli = i + 3;
-                gornicy[i] = Task.Run(() => PracaGornika(idGornika, liniaKonsoli));
+                zloze = poczatkoweZloze;
+                magazyn = 0;
+                semaforZloza = new SemaphoreSlim(2, 2);
+                semaforMagazynu = new SemaphoreSlim(1, 1);
+
+                Stopwatch sw = Stopwatch.StartNew();
+
+                Task[] gornicy = new Task[p];
+                for (int i = 0; i < p; i++)
+                {
+                    gornicy[i] = Task.Run(() => PracaGornika());
+                }
+
+                Task.WaitAll(gornicy);
+                sw.Stop();
+
+                double czasSekundy = sw.Elapsed.TotalSeconds;
+
+                if (p == 1)
+                {
+                    czasDlaJeden = czasSekundy;
+                }
+
+                double przyspieszenie = czasDlaJeden / czasSekundy;
+                double efektywnosc = przyspieszenie / p;
+
+                Console.WriteLine($"liczba górników: {p}, czas: {czasSekundy:F2} s przyśpieszenie: {przyspieszenie:F2} efektywność: {efektywnosc:F2}");
             }
 
-            Task.WaitAll(gornicy);
-
-            symulacjaTrwa = false;
-            monitor.Wait();
-
-            RysujWConsoli(0, 0, $"Stan złoża: {zloze} jednostek węgla");
-            RysujWConsoli(0, 1, $"Stan magazynu: {magazyn} jednostek węgla");
-            RysujWConsoli(0, liczbaGornikow + 4, "--- Symulacja zakończona ---");
-            Console.ReadLine();
+            Console.WriteLine("\n--- Pomiar zakończony ---");
         }
 
-        static void RysujWConsoli(int x, int y, string tekst)
+        static void PracaGornika()
         {
-            lock (blokadaKonsoli)
-            {
-                Console.SetCursorPosition(x, y);
-                Console.Write(tekst.PadRight(60));
-            }
-        }
-
-        static void OdswiezajStanOgolny()
-        {
-            while (symulacjaTrwa)
-            {
-                RysujWConsoli(0, 0, $"Stan złoża: {zloze} jednostek węgla");
-                RysujWConsoli(0, 1, $"Stan magazynu: {magazyn} jednostek węgla");
-                Thread.Sleep(100);
-            }
-        }
-
-        static void PracaGornika(int id, int liniaWykonsoli)
-        {
-            RysujWConsoli(0, liniaWykonsoli, $"Górnik {id}: Gotowy do pracy");
-
             while (true)
             {
                 int iloscDoPobrania = 0;
 
-                RysujWConsoli(0, liniaWykonsoli, $"Górnik {id}: Czeka na dostęp do złoża...");
                 semaforZloza.Wait();
 
                 lock (blokadaZloza)
@@ -92,18 +80,13 @@ namespace lab1
                     zloze -= iloscDoPobrania;
                 }
 
-                RysujWConsoli(0, liniaWykonsoli, $"Górnik {id}: Wydobywa węgiel...");
                 Thread.Sleep(iloscDoPobrania * czasWydobyciaJednostkiMs);
-
                 semaforZloza.Release();
 
-                RysujWConsoli(0, liniaWykonsoli, $"Górnik {id}: Transportuje do magazynu...");
                 Thread.Sleep(czasPrzejazduMs);
 
-                RysujWConsoli(0, liniaWykonsoli, $"Górnik {id}: Czeka na rozładunek w magazynie...");
                 semaforMagazynu.Wait();
 
-                RysujWConsoli(0, liniaWykonsoli, $"Górnik {id}: Rozładowuje węgiel...");
                 Thread.Sleep(iloscDoPobrania * czasRozladunkuJednostkiMs);
 
                 lock (blokadaMagazynu)
@@ -112,11 +95,8 @@ namespace lab1
                 }
                 semaforMagazynu.Release();
 
-                RysujWConsoli(0, liniaWykonsoli, $"Górnik {id}: Wraca do kopalni...");
                 Thread.Sleep(czasPrzejazduMs);
             }
-
-            RysujWConsoli(0, liniaWykonsoli, $"Górnik {id}: Zakończył pracę.");
         }
     }
 }
